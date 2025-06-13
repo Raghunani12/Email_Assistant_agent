@@ -1,0 +1,433 @@
+{
+  "name": "Voice Email Assistant - Fixed",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "voice-email",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [-1400, 200],
+      "webhookId": "unique-webhook-id",
+      "id": "webhook-id"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "maxResults": 5,
+        "filters": {
+          "includeBody": true
+        }
+      },
+      "name": "Gmail Fetch",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [-1200, 200],
+      "id": "gmail-fetch-id",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "r3iFeEf9ZiV51equ",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "agent": "conversationalAgent",
+        "systemPrompt": "You are an email assistant for Raghu. Process the user's voice query using email data. Return a JSON object: { 'response': 'text to speak', 'action': 'send/reply/none/markAsRead', 'details': { 'to': '', 'subject': '', 'emailContent': '', 'messageId': '' (for replies/markAsRead) } }. Email data: {{ JSON.stringify($node['Gmail Fetch'].json) }}. Query: {{ $json['query'] }}. Previous context: {{ JSON.stringify($workflow.memory || 'None') }}. For 'read' queries, summarize emails concisely. For 'send' queries, draft a professional email and sign off as 'Raghu'.",
+        "memory": "contextMemory",
+        "options": {}
+      },
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [-1000, 200],
+      "id": "ai-agent-id"
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 2000
+        }
+      },
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [-1000, 400],
+      "id": "openai-id",
+      "credentials": {
+        "openAiApi": {
+          "id": "0E5RcouxxmlqVawd",
+          "name": "n8n free OpenAI API credits"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const agentResponse = $node['AI Agent'].json.output;\ntry {\n  const parsed = JSON.parse(agentResponse);\n  $workflow.memory = {\n    lastQuery: $json['query'],\n    lastResponse: parsed,\n    timestamp: new Date().toISOString()\n  };\n  return [{ json: parsed }];\n} catch (e) {\n  return [{ json: { \n    response: 'Error processing your request: ' + e.message, \n    action: 'none', \n    error: e.message,\n    stack: e.stack\n  } }];\n}"
+      },
+      "name": "Parse Agent Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [-800, 200],
+      "id": "parse-id"
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "rules": {
+          "stringRules": [
+            {
+              "value1": "{{ $json['action'] }}",
+              "operation": "equals",
+              "value2": "send"
+            },
+            {
+              "value1": "{{ $json['action'] }}",
+              "operation": "equals",
+              "value2": "reply"
+            },
+            {
+              "value1": "{{ $json['action'] }}",
+              "operation": "equals",
+              "value2": "markAsRead"
+            },
+            {
+              "value1": "{{ $json['action'] }}",
+              "operation": "equals",
+              "value2": "none"
+            }
+          ]
+        },
+        "outputKey": "action"
+      },
+      "name": "Switch Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [-600, 200],
+      "id": "switch-id"
+    },
+    {
+      "parameters": {
+        "responseCode": 200,
+        "responseData": "={\n  \"status\": \"success\",\n  \"response\": \"{{ $json['response'] }}\",\n  \"action\": \"none\",\n  \"memory\": {{ JSON.stringify($workflow.memory) }},\n  \"timestamp\": \"{{ new Date().toISOString() }}\"\n}",
+        "options": {}
+      },
+      "name": "Webhook Response (No Action)",
+      "type": "n8n-nodes-base.webhookResponse",
+      "typeVersion": 1,
+      "position": [-400, 500],
+      "id": "no-action-id"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "response",
+              "value": "Draft email: \"{{ $json['details']['emailContent'] }}\"\n\nShould I send this? Say 'Yes' to confirm or 'No' to cancel."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Set Confirmation (Send)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [-400, 100],
+      "id": "set-send-id"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "response",
+              "value": "Draft reply: \"{{ $json['details']['emailContent'] }}\"\n\nShould I send this reply? Say 'Yes' to confirm or 'No' to cancel."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Set Confirmation (Reply)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [-400, 250],
+      "id": "set-reply-id"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "response",
+              "value": "{{ $json['response'] }}\n\nShould I mark this as read? Say 'Yes' to confirm or 'No' to cancel."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Set Confirmation (MarkAsRead)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [-400, 400],
+      "id": "set-mark-id"
+    },
+    {
+      "parameters": {
+        "path": "voice-confirm",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Confirm Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [-200, 100],
+      "webhookId": "unique-confirm-id",
+      "id": "confirm-id"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "{{ $json['query'] }}",
+              "operation": "equals",
+              "value2": "Yes"
+            }
+          ]
+        }
+      },
+      "name": "Check Confirmation",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [0, 100],
+      "id": "check-id"
+    },
+    {
+      "parameters": {
+        "sendTo": "{{ $node['Parse Agent Response'].json['details']['to'] }}",
+        "subject": "{{ $node['Parse Agent Response'].json['details']['subject'] }}",
+        "message": "{{ $node['Parse Agent Response'].json['details']['emailContent'] }}",
+        "options": {}
+      },
+      "name": "Send Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [200, 0],
+      "id": "send-email-id",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "r3iFeEf9ZiV51equ",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "reply",
+        "messageId": "{{ $node['Parse Agent Response'].json['details']['messageId'] }}",
+        "message": "{{ $node['Parse Agent Response'].json['details']['emailContent'] }}",
+        "options": {}
+      },
+      "name": "Reply Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [200, 200],
+      "id": "reply-email-id",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "r3iFeEf9ZiV51equ",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "modify",
+        "messageId": "{{ $node['Parse Agent Response'].json['details']['messageId'] }}",
+        "options": {
+          "addLabels": [],
+          "removeLabels": ["UNREAD"]
+        }
+      },
+      "name": "Mark As Read",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [200, 400],
+      "id": "mark-read-id",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "r3iFeEf9ZiV51equ",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "response",
+              "value": "{{ {'send': 'Email sent successfully', 'reply': 'Reply sent successfully', 'markAsRead': 'Email marked as read'}[$node['Switch Action'].json['action']] || 'Action completed' }}."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Set Success Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [400, 100],
+      "id": "success-id"
+    },
+    {
+      "parameters": {
+        "responseCode": 200,
+        "responseData": "={\n  \"status\": \"success\",\n  \"response\": \"{{ $json['response'] }}\",\n  \"action\": \"{{ $node['Switch Action'].json['action'] }}\",\n  \"timestamp\": \"{{ new Date().toISOString() }}\"\n}",
+        "options": {}
+      },
+      "name": "Webhook Response (Success)",
+      "type": "n8n-nodes-base.webhookResponse",
+      "typeVersion": 1,
+      "position": [600, 100],
+      "id": "success-response-id"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "response",
+              "value": "Action cancelled as requested."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Set Cancel Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [0, 300],
+      "id": "cancel-id"
+    },
+    {
+      "parameters": {
+        "responseCode": 200,
+        "responseData": "={\n  \"status\": \"cancelled\",\n  \"response\": \"{{ $json['response'] }}\",\n  \"timestamp\": \"{{ new Date().toISOString() }}\"\n}",
+        "options": {}
+      },
+      "name": "Webhook Response (Cancel)",
+      "type": "n8n-nodes-base.webhookResponse",
+      "typeVersion": 1,
+      "position": [200, 300],
+      "id": "cancel-response-id"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "response",
+              "value": "Error: {{ $json['error'] || 'An unexpected error occurred' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Error Fallback",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [-800, 400],
+      "id": "error-id"
+    },
+    {
+      "parameters": {
+        "responseCode": 500,
+        "responseData": "={\n  \"status\": \"error\",\n  \"response\": \"{{ $json['response'] }}\",\n  \"error\": \"{{ $json['error'] || 'No details available' }}\",\n  \"timestamp\": \"{{ new Date().toISOString() }}\"\n}",
+        "options": {}
+      },
+      "name": "Webhook Response (Error)",
+      "type": "n8n-nodes-base.webhookResponse",
+      "typeVersion": 1,
+      "position": [-600, 400],
+      "id": "error-response-id"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{"node": "Gmail Fetch","type": "main","index": 0}]]
+    },
+    "Gmail Fetch": {
+      "main": [[{"node": "AI Agent","type": "main","index": 0}]]
+    },
+    "AI Agent": {
+      "main": [[{"node": "Parse Agent Response","type": "main","index": 0}]],
+      "ai_languageModel": [[{"node": "OpenAI Chat Model","type": "ai_languageModel","index": 0}]]
+    },
+    "Parse Agent Response": {
+      "main": [
+        [{"node": "Switch Action","type": "main","index": 0}],
+        [{"node": "Error Fallback","type": "main","index": 0}]
+      ]
+    },
+    "Switch Action": {
+      "main": [
+        [{"node": "Set Confirmation (Send)","type": "main","index": 0}],
+        [{"node": "Set Confirmation (Reply)","type": "main","index": 0}],
+        [{"node": "Set Confirmation (MarkAsRead)","type": "main","index": 0}],
+        [{"node": "Webhook Response (No Action)","type": "main","index": 0}]
+      ]
+    },
+    "Set Confirmation (Send)": {
+      "main": [[{"node": "Confirm Webhook","type": "main","index": 0}]]
+    },
+    "Set Confirmation (Reply)": {
+      "main": [[{"node": "Confirm Webhook","type": "main","index": 0}]]
+    },
+    "Set Confirmation (MarkAsRead)": {
+      "main": [[{"node": "Confirm Webhook","type": "main","index": 0}]]
+    },
+    "Confirm Webhook": {
+      "main": [[{"node": "Check Confirmation","type": "main","index": 0}]]
+    },
+    "Check Confirmation": {
+      "main": [
+        [{"node": "Send Email","type": "main","index": 0}],
+        [{"node": "Reply Email","type": "main","index": 0}],
+        [{"node": "Mark As Read","type": "main","index": 0}],
+        [{"node": "Set Cancel Response","type": "main","index": 0}]
+      ]
+    },
+    "Send Email": {
+      "main": [[{"node": "Set Success Response","type": "main","index": 0}]]
+    },
+    "Reply Email": {
+      "main": [[{"node": "Set Success Response","type": "main","index": 0}]]
+    },
+    "Mark As Read": {
+      "main": [[{"node": "Set Success Response","type": "main","index": 0}]]
+    },
+    "Set Success Response": {
+      "main": [[{"node": "Webhook Response (Success)","type": "main","index": 0}]]
+    },
+    "Error Fallback": {
+      "main": [[{"node": "Webhook Response (Error)","type": "main","index": 0}]]
+    },
+    "Set Cancel Response": {
+      "main": [[{"node": "Webhook Response (Cancel)","type": "main","index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}
