@@ -2,9 +2,10 @@
 
 > **Auto-reads. Understands. Speaks. Replies.**  
 > Your fully automated email productivity weapon — built with `n8n`, `GPT-4o`, and voice magic.
+> <img src='image.png'>
 
 ---
-<img src='image.jpg'>
+
 
 ## 🚀 Overview
 
