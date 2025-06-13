@@ -4,8 +4,7 @@
 > Your fully automated email productivity weapon — built with `n8n`, `GPT-4o`, and voice magic.
 
 ---
-<img src='![image](https://github.com/user-attachments/assets/89846b5a-0787-49e8-8c66-d9d75770c679)
-'>
+<img src='image.jpg'>
 
 ## 🚀 Overview
 
